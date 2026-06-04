@@ -58,7 +58,7 @@ A Conda environment file is provided as `PRISM_environment.yaml`.
 Clone the repository and create the Conda environment:
 
 ```bash
-git clone https://github.com/<your-lab>/PRISM.git
+git clone https://github.com/feilab-hust/PRISM.git
 cd PRISM
 conda env create -f PRISM_environment.yaml
 conda activate prism
