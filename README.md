@@ -58,7 +58,7 @@ A Conda environment file is provided as `PRISM_environment.yaml`.
 Clone the repository and create the Conda environment:
 
 ```bash
-git clone https://github.com/<your-lab>/PRISM.git
+git clone https://github.com/feilab-hust/PRISM.git
 cd PRISM
 conda env create -f PRISM_environment.yaml
 conda activate prism
@@ -123,7 +123,7 @@ The current preprocessing normalizes each image or patch by its maximum intensit
 
 ## Usage
 
-The current scripts contain default hyperparameters for the reported 2D and 3D experiments. Before running, update the input directory, PSF path, checkpoint path and output directory in the corresponding script, or apply the command-line path refactor described in [Preparing the code for GitHub release](#preparing-the-code-for-github-release).
+The current scripts contain default hyperparameters for the reported 2D and 3D experiments. Before running, update the input directory, PSF path, checkpoint path and output directory in the corresponding script, or apply the command-line path refactor described in [Preparing the code for GitHub release](#installation).
 
 ### 2D training
 
