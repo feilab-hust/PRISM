@@ -1,4 +1,6 @@
 import os
+import argparse
+from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 from tifffile import imread, imwrite
@@ -14,9 +16,7 @@ from model import RestorationNetwork3d_subback2
 from loss import FinalLoss_single, FinalLoss_single_blur
 from utils import normalize_to_01, augment_2d_batch
 
-
-os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ['CUDA_VISIBLE_DEVICES'] = '4'
+save_flag = True  # 是否保存裁剪图像块
 
 
 def preprocess_image_2d(image_path, device):
@@ -154,40 +154,56 @@ def train(model, batch_size, train_loader, psf_x, criterion, optimizer, device, 
 if __name__ == "__main__":
 
     mp.set_start_method('spawn')
+    back_flag = True  # 跑两轮 第一轮是False 第二轮是True
 
+    ################################## 超参数 ###################################
+    parser = argparse.ArgumentParser(description="PRISM self-supervised training")
+    parser.add_argument("--input_dir", type=Path, required=True,
+                        help="Folder containing input .tif/.tiff images or stacks")
+    parser.add_argument("--psf_path", type=Path, required=True, help="Path to PSF .tif file")
+    parser.add_argument("--output_dir", type=Path, required=True, help="Folder for checkpoints, cache and logs")
+    parser.add_argument("--pretrained_weight", type=Path, default=None, help="Optional checkpoint for fine-tuning")
+    parser.add_argument("--gpu", type=str, default="0",
+                        help="GPU id, e.g. 0. If omitted, use current CUDA_VISIBLE_DEVICES")
+    parser.add_argument("--batch_size", type=int, default=2)
+    parser.add_argument("--num_epochs", type=int, default=50, help="Override default epoch number")
+    parser.add_argument("--crop_size", type=int, default=128, help="Override default lateral patch size")
+    parser.add_argument("--scale", type=int, default=1)
+    parser.add_argument("--top_percent", type=float, default=0.1)
+    parser.add_argument("--num_per_img", type=int, default=50)
+    args = parser.parse_args()
+    if args.gpu is not None:
+        os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     if torch.cuda.is_available():
         print("GPU可用！")
+    x_blur_dir = str(args.input_dir)
+    kernel_path = str(args.psf_path)
+    model_path = str(args.output_dir)
+    Path(model_path).mkdir(parents=True, exist_ok=True)
 
-    ################################## 超参数 ###################################
-    scale = 2  # 横向上采样倍率
+    cache_dir = Path(model_path) / "cache"
+    data_cache_path = str(cache_dir / "cached_data.pt")
+    data_save_path = str(cache_dir / "patches")
+    data_final_save_path = str(cache_dir / "final")
 
-    x_blur_dir = r"Z:\ZY_D\to ljc\大肠杆菌SIM\train\group1/"  # 原图像所在文件夹路径
-    kernel_path = r"Z:\ZY_D\to ljc\20250627 Tom20\for_net2\sr_DBacs.tif"  # psf路径
-    data_cache_path = os.path.join(x_blur_dir, "cached_data.pt")  # 数据缓存文件的路径
-    data_save_path = os.path.join(x_blur_dir, "cached_data")  # 裁剪图像块保存文件夹的路径
-    data_final_save_path = os.path.join(data_save_path, 'final')  # 超分模型输出的裁剪图像块保存文件夹的路径
-    best_weight_path = r"Z:\ZY_D\to ljc\大肠杆菌SIM\train\group1\best_model.pth"  # 已有的最佳权重，读取进行微调
-    model_path = r"Z:\ZY_D\to ljc\大肠杆菌SIM\train\group1/"  # 权重文件夹路径
-    best_model_path = os.path.join(model_path, "best_model2.pth")  # 最佳权重保存路径
-    final_model_path =os.path.join(model_path, "restoration_model2.pth")  # 最终权重保存路径
-    loss_curve_path = os.path.join(model_path, "loss_curve2.png")  # 损失函数曲线保存路径
+    best_weight_path = "" if args.pretrained_weight is None else str(args.pretrained_weight)
+    best_model_path = str(Path(model_path) / "best_model.pth")
+    final_model_path = str(Path(model_path) / "restoration_model.pth")
+    loss_curve_path = str(Path(model_path) / "loss_curve.png")
+    crop_size = args.crop_size
+    num_epochs = args.num_epochs
+    batch_size = args.batch_size
+    scale = args.scale
+    num_per_img = args.num_per_img
+    top_percent = args.top_percent
 
-    batch_size = 2  # 训练批次大小
-    crop_size = 128  # 横向裁剪大小
-    num_per_img = 20  # 每个stack裁剪图像块数量
-    top_percent = 0.1  # 裁剪图像块时选取标准差(或均值)前多少的
-    save_flag = True  # 是否保存裁剪图像块
 
     num_features = 32
     back_features = 32
-    num_groups = 2
-    num_blocks = 4
-    activate = "tanh"
-    back_flag = True    # 跑两轮 第一轮是False 第二轮是True
     max_drop_path_rate = 0.075
     window_size = 5
-    alpha = 1.0    # 一般是0.5
+    alpha = 1.0    # 一般是1.0
     back_ratio = 0.075
     freq_ratio_high = 0.1
     freq_ratio2 = 0.75
@@ -218,10 +234,6 @@ if __name__ == "__main__":
         learning_rate_back = 0  # 背景估计模块学习率
         num_epochs = 50  # epoch大小
     save_final_flag = True  # 是否保存最终输出的图像裁剪块
-    LN_flag = True
-    model_type = "AxialTrans"
-    # model_type = "CNN"
-    shuffle_flag = True
     padding_size = (4, 4)
 
     fourier_magnitude_cutoff_ratio_lateral = 0.9  # 横向截止比例
@@ -299,11 +311,9 @@ if __name__ == "__main__":
             imwrite(os.path.join(data_save_path, str(i + 1) + ".tif"), img)
 
     # 初始化模型
-    model = RestorationNetwork3d_subback2(scale=scale, num_features=num_features, back_features=back_features,
-                                         num_groups=num_groups, num_blocks=num_blocks, back_flag=back_flag, activate=activate,
+    model = RestorationNetwork3d_subback2(scale=scale, num_features=num_features, back_features=back_features, back_flag=back_flag,
                                          back_ratio=back_ratio, freq_ratio_high=freq_ratio_high, freq_ratio2=freq_ratio2, attenuation_slope=attenuation_slope,
-                                         train_flag=True, model_type=model_type, shuffle_flag=shuffle_flag,
-                                         padding_size=padding_size, LN_flag=LN_flag, max_drop_path_rate=max_drop_path_rate).to(device)
+                                         train_flag=True, padding_size=padding_size, max_drop_path_rate=max_drop_path_rate).to(device)
     if os.path.exists(best_weight_path):
         model.load_state_dict(torch.load(best_weight_path))
         print(f"Model loading weight from {best_weight_path}")

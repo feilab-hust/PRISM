@@ -3,26 +3,20 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from network_utils import PrimaryEncoder, DeepEncoder, Decoder
-from transformer_utils import DeepEncoder_swin, DeepEncoder_hybird
 from network_utils_res import DeepEncoder_AxialTransUNet, Conv, DeepEncoder_Trans
 from utils import fft_conv3d, FourierLowpass3D, Fourier3DLowpass
-from UNet_utils import Unet3D
-from Transmittance import Transmittance
+from transmittance import Transmittance
 
 
 class RestorationNetwork3d_subback2(nn.Module):
-    def __init__(self, scale=1, scale_axial=1, train_flag=True, num_features=64, back_features=32, num_groups=4, num_blocks=4, use_cbam=False, back_flag=True, img_size=(32, 64, 64), activate="tanh",
-                 back_ratio=(0.4, 0.2), freq_ratio_low=0.2, freq_ratio_high=0.075, freq_ratio2=0.5, attenuation_slope=0.3, window_size=(4, 4, 4), model_type="CNN", shuffle_flag=True, padding_size=(0, 0, 0),
-                 eps=1e-8, device=None, encoder_blocks=(2, 2, 2), decoder_blocks=(2, 2), LN_flag=True, max_drop_path_rate=0.):
+    def __init__(self, scale=1, scale_axial=1, train_flag=True, num_features=64, back_features=32, num_groups=4, num_blocks=4, use_cbam=False, back_flag=True, activate="tanh",
+                 back_ratio=(0.4, 0.2), freq_ratio_low=0.2, freq_ratio_high=0.075, freq_ratio2=0.5, attenuation_slope=0.3, model_type="AxialTrans", shuffle_flag=True, padding_size=(0, 0, 0),
+                 eps=1e-8, LN_flag=True, max_drop_path_rate=0.):
         super(RestorationNetwork3d_subback2, self).__init__()
         self.num_features = num_features
         self.primary_encoder = nn.Conv3d(1, num_features, kernel_size=3, padding=1, stride=1)
         if model_type=="CNN":
             self.deep_encoder = DeepEncoder(num_features=num_features, num_groups=num_groups, num_blocks=num_blocks, use_cbam=use_cbam)
-        elif model_type=="Swin":
-            self.deep_encoder = DeepEncoder_swin(num_features=num_features, num_groups=num_groups, num_blocks=num_blocks, window_size=window_size, use_cbam=use_cbam, img_size=img_size, device=device)
-        elif model_type=="Hybird":
-            self.deep_encoder = DeepEncoder_hybird(num_features=num_features, num_groups=num_groups, num_blocks=num_blocks, use_cbam=use_cbam, window_size=window_size, img_size=img_size, device=device, encoder_blocks=encoder_blocks, decoder_blocks=decoder_blocks, upsample_flag=scale>1 or scale_axial>1)
         elif model_type=="AxialTrans":
             self.deep_encoder = DeepEncoder_AxialTransUNet(dim=num_features, LN_flag=LN_flag, max_drop_path_rate=max_drop_path_rate)
             # self.deep_encoder = DeepEncoder_Trans(num_features=num_features, num_groups=num_groups, num_blocks=num_blocks)
@@ -151,8 +145,7 @@ class RestorationNetwork3d_subback2(nn.Module):
 
 class RestorationNetwork3d_Inference(nn.Module):
     def __init__(self, scale=1, scale_axial=1, num_features=64, num_groups=4, num_blocks=4, use_cbam=True, activate="tanh",
-                 img_size=(32, 64, 64), window_size=(4, 4, 4), model_type="CNN", shuffle_flag=True, padding_size=(0, 0, 0),
-                 encoder_blocks=(2, 2, 2), decoder_blocks=(2, 2), device=torch.device('cpu'), LN_flag=True):
+                 model_type="AxialTrans", shuffle_flag=True, padding_size=(0, 0, 0), LN_flag=True):
         super(RestorationNetwork3d_Inference, self).__init__()
         self.num_features = num_features
         self.scale = scale
@@ -164,16 +157,6 @@ class RestorationNetwork3d_Inference(nn.Module):
 
         if model_type == "CNN":
             self.deep_encoder = DeepEncoder(num_features=num_features, num_groups=num_groups, num_blocks=num_blocks, use_cbam=use_cbam)
-        elif model_type == "Swin":
-            self.deep_encoder = DeepEncoder_swin(num_features=num_features, num_groups=num_groups,
-                                                 num_blocks=num_blocks, window_size=window_size, use_cbam=use_cbam,
-                                                 img_size=img_size, device=device)
-        elif model_type == "Hybird":
-            self.deep_encoder = DeepEncoder_hybird(num_features=num_features, num_groups=num_groups,
-                                                   num_blocks=num_blocks, use_cbam=use_cbam, window_size=window_size,
-                                                   img_size=img_size, device=device, encoder_blocks=encoder_blocks,
-                                                   decoder_blocks=decoder_blocks,
-                                                   upsample_flag=scale > 1 or scale_axial > 1)
         elif model_type=="AxialTrans":
             self.deep_encoder = DeepEncoder_AxialTransUNet(dim=num_features, LN_flag=LN_flag)
 

@@ -5,12 +5,12 @@ import torch.nn.functional as F
 from network_utils import DeepEncoder, Decoder
 from network_utils_res import DeepEncoder_AxialTransUNet, Conv, DeepEncoder_Trans
 from utils import fft_conv2d, FourierLowpass2D
-from Transmittance import Transmittance
+from transmittance import Transmittance
 
 
 class RestorationNetwork3d_subback2(nn.Module):
     def __init__(self, scale=1, train_flag=True, num_features=64, back_features=32, num_groups=4, num_blocks=4, use_cbam=False, back_flag=True, activate="tanh",
-                 back_ratio=0.2, freq_ratio_low=0.2, freq_ratio_high=0.075, freq_ratio2=0.5, attenuation_slope=0.3, model_type="CNN", shuffle_flag=True, padding_size=(0, 0, 0),
+                 back_ratio=0.2, freq_ratio_low=0.2, freq_ratio_high=0.075, freq_ratio2=0.5, attenuation_slope=0.3, model_type="AxialTrans", shuffle_flag=True, padding_size=(0, 0, 0),
                  eps=1e-8, LN_flag=True, max_drop_path_rate=0.):
         super(RestorationNetwork3d_subback2, self).__init__()
         self.num_features = num_features
@@ -127,8 +127,8 @@ class RestorationNetwork3d_subback2(nn.Module):
 
 
 class RestorationNetwork3d_Inference(nn.Module):
-    def __init__(self, scale=1, num_features=64, num_groups=4, num_blocks=4, use_cbam=True, activate="tanh",
-                model_type="CNN", shuffle_flag=True, padding_size=(0, 0, 0),LN_flag=True):
+    def __init__(self, scale=1, num_features=64, num_groups=4, num_blocks=4, use_cbam=False, activate="tanh",
+                model_type="AxialTrans", shuffle_flag=True, padding_size=(0, 0, 0), LN_flag=True):
         super(RestorationNetwork3d_Inference, self).__init__()
         self.num_features = num_features
         self.scale = scale

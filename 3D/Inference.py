@@ -1,4 +1,6 @@
 import os
+import argparse
+from pathlib import Path
 from tqdm import tqdm
 import numpy as np
 from scipy.ndimage import zoom
@@ -7,15 +9,11 @@ import torch
 import torch.nn.functional as F
 import time
 
-# 确保导入的是新的推理模型
 from model import RestorationNetwork3d_Inference
-
-os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 
 
 def inference_blockwise(num, model, image_x, block_size, block_depth, overlap, overlap_depth, scale_factor_xy,
-                        scale_factor_z, device, padding_size=(0, 0, 0), n=0):
+                        scale_factor_z, padding_size=(0, 0, 0), n=0):
     """
     Args:
         num (int): 当前处理图像的索引，用于打印进度。
@@ -27,7 +25,6 @@ def inference_blockwise(num, model, image_x, block_size, block_depth, overlap, o
         overlap_depth (int): 轴向重叠区域深度。
         scale_factor_xy (int): 横向超分辨率倍率。
         scale_factor_z (int): 轴向超分辨率倍率。
-        device (torch.device): 模型运行的设备。
         padding_size (tuple): 模型初始化时使用的填充尺寸 (d_pad, h_pad, w_pad)。
                               用于裁剪最终输出。
     Returns:
@@ -57,7 +54,7 @@ def inference_blockwise(num, model, image_x, block_size, block_depth, overlap, o
         for d in tqdm(range(0, depth, block_depth - overlap_depth), desc=f"Image {num} Z-axis"):
             for h in range(0, height, block_size - overlap):
                 for w in range(0, width, block_size - overlap):
-                    # print(f"Processing block at {num}, D:{d / depth:.2%}, H:{h / height:.2%}, W:{w / width:.2%}")
+                    print(f"Processing block at {num}, D:{d / depth:.2%}, H:{h / height:.2%}, W:{w / width:.2%}")
 
                     # 当前块的范围，考虑到重叠区域
                     d_end = min(d + block_depth, depth)
@@ -70,15 +67,9 @@ def inference_blockwise(num, model, image_x, block_size, block_depth, overlap, o
                         block_x = F.pad(block_x, (padding_size[2], padding_size[2], padding_size[1], padding_size[1], padding_size[0],
                             padding_size[0]), 'reflect')
 
-                    # max_val_block = torch.max(block_x)
-                    # if max_val_block == 0:  # 避免除以零
-                    #     normalized_block_x = block_x
-                    # else:
-                    #     normalized_block_x = block_x / max_val_block
                     normalized_block_x = block_x
 
                     high_res_img_block = model(normalized_block_x)
-                    # high_res_img_block = high_res_img_block * max_val_block
 
                     # 将块尺寸转换为横向和轴向的上采样后的尺寸
                     scaled_d_start = int(d * scale_factor_z)
@@ -113,20 +104,12 @@ def inference_blockwise(num, model, image_x, block_size, block_depth, overlap, o
                     break
             if (d + block_depth >= depth):
                 break
-                # 归一化权重，消除边缘重叠的累加效应
     output /= weight_map
     output = output[0, 0, :int(depth_0 * scale_factor_z), :, :]
     print(np.shape(output))
     if n > 0:
         output = output[n: -n, :, :]
     return output
-
-
-# def preprocess_image_3d(image_path, device, idx=1.0):
-#     image = np.float32(imread(image_path))
-#     image = torch.from_numpy(image).float().unsqueeze(0).unsqueeze(0).to(device)
-#     image = image / torch.max(image) * idx
-#     return image
 
 
 def preprocess_image_3d(image_path, device, n=0):
@@ -173,33 +156,38 @@ def preprocess_image_3d(image_path, device, n=0):
 
 if __name__ == "__main__":
     # 参数
+    parser = argparse.ArgumentParser(description="PRISM inference")
+    parser.add_argument("--input_dir", type=Path, required=True,
+                        help="Folder containing input .tif/.tiff images or stacks")
+    parser.add_argument("--weight_path", type=Path, required=True, help="Path to trained .pth checkpoint")
+    parser.add_argument("--output_dir", type=Path, required=True, help="Folder for restored outputs")
+    parser.add_argument("--gpu", type=str, default="0")
+    parser.add_argument("--block_size", type=int, default=128)
+    parser.add_argument("--overlap", type=int, default=16)
+    parser.add_argument("--block_depth", type=int, default=24)
+    parser.add_argument("--overlap_depth", type=int, default=4)
+    args = parser.parse_args()
+    if args.gpu is not None:
+        os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
+
+
+
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    block_size = 192  # 横向块尺寸
-    block_depth = 24  # 轴向块深度
-    overlap = 16  # 横向重叠区域大小
-    overlap_depth = 8  # 轴向重叠区域深度
     n = 0
-
     scale = 2  # 横向上采样倍率
-    scale_axial = 2  # 轴向上采样倍率
+    scale_axial = 1  # 轴向上采样倍率
     num_features = 32
-    num_groups = 2
-    num_blocks = 4
     padding_size = (4, 8, 8)  # 与训练模型保持一致
-    activate = "tanh"
 
-    model_type = "AxialTrans"  # 模型类型，必须与训练时一致
-    # model_type = "CNN"
-    use_cbam = False
-    LN_flag = True
-    shuffle_flag = True
-    iso_scale_factor_z = 1
+    path_x = str(args.input_dir)
+    weight_path = str(args.weight_path)
+    save_path = str(args.output_dir)
+    os.makedirs(save_path, exist_ok=True)
 
-    # 模型权重路径和输入/输出路径
-    weight_path = r"Z:\ZY_D\to ljc\20250627 Tom20\for_net2\act_TIM\泛化性实验\5\best_model2.pth"   # sr模型权重路径
-    path_x = r"Z:\ZY_D\to ljc\20250627 Tom20\for_net2\act_TIM\泛化性实验\5\roll"  # 原始x维度模糊图像文件夹路径
-    save_path = r"Z:\ZY_D\to ljc\20250627 Tom20\for_net2\act_TIM\泛化性实验\5\predict/"
-    name = "SIM线粒体"
+    block_size = args.block_size
+    overlap = args.overlap
+    block_depth = args.block_depth
+    overlap_depth = args.overlap_depth
 
     # 创建输出文件夹
     os.makedirs(save_path, exist_ok=True)
@@ -210,18 +198,7 @@ if __name__ == "__main__":
         scale=scale,
         scale_axial=scale_axial,
         num_features=num_features,
-        num_groups=num_groups,
-        num_blocks=num_blocks,
-        use_cbam=use_cbam,
-        model_type=model_type,
-        shuffle_flag=shuffle_flag,
         padding_size=padding_size,
-        activate=activate,
-        img_size=(block_depth + 2 * padding_size[0],
-                  block_size + 2 * padding_size[1],
-                  block_size + 2 * padding_size[2]),
-        LN_flag=LN_flag,
-        device=device
     ).to(device)
 
     print(f"尝试从 {weight_path} 加载模型权重...")
@@ -243,8 +220,6 @@ if __name__ == "__main__":
 
     model.eval()
 
-    # model = torch.compile(model, backend="aot_eager")
-
     # --- 逐块推理循环 ---
     img_names = [f for f in os.listdir(path_x) if f.lower().endswith(('.tif', '.tiff'))]
     num_length = len(img_names)
@@ -257,7 +232,7 @@ if __name__ == "__main__":
 
         start_time = time.time()
         # 执行带平滑的逐块推理
-        high_res_img = inference_blockwise(
+        high_res_img_np = inference_blockwise(
             i + 1,
             model,
             blurred_x,
@@ -267,7 +242,6 @@ if __name__ == "__main__":
             overlap_depth,
             scale,
             scale_axial,
-            device,
             padding_size=padding_size,
             n=n
         )
@@ -276,26 +250,6 @@ if __name__ == "__main__":
         run_time = end_time - start_time
         print(f"代码运行时间: {run_time:.4f} 秒")
 
-        # if torch.isnan(high_res_img).any():
-        #     print(f"警告: 图像 {img_names[i]} 的输出中包含 NaN 值。")
-        # else:
-            # high_res_img_np = high_res_img.squeeze().cpu().detach().numpy()
-        high_res_img_np = high_res_img
-
-        # --- 各向同性插值处理 ---
-
-        # 只有当 z 和 xy 轴的实际像素大小不同时才进行插值
-        if iso_scale_factor_z != 1:
-            print(f"正在执行各向同性插值 (Z轴缩放因子: {iso_scale_factor_z:.4f})。")
-            high_res_img_np = zoom(
-                high_res_img_np,
-                (iso_scale_factor_z, 1, 1),  # 只在Z轴进行插值
-                order=3  # 三次样条插值
-            )
-
-        # --- 结果后处理和保存 ---
-        # high_res_img_np[high_res_img_np < 0] = 0  # 移除负值
-        high_res_img_np = np.abs(high_res_img_np)
         # 归一化到 [0, 1] 再转换为 uint16
         if np.max(high_res_img_np) - np.min(high_res_img_np) > 1e-8:
             high_res_img_np = (high_res_img_np - np.min(high_res_img_np)) / (np.max(high_res_img_np) - np.min(high_res_img_np))
@@ -306,7 +260,6 @@ if __name__ == "__main__":
 
         # 保存结果
         outpath = os.path.join(save_path, f"{os.path.splitext(img_names[i])[0]}.tif")
-        # outpath = save_path + name + ".tif"
         imwrite(outpath, high_res_img_np)
         print(f"图像 {img_names[i]} 处理完成，结果已保存到 {outpath}")
 
